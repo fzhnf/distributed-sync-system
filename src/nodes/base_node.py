@@ -1,11 +1,12 @@
+# pyright: reportUnusedParameter=false
+
 import asyncio
 from collections.abc import Awaitable
-from typing import Any, Callable
+from typing import Callable, cast
 from aiohttp import web, ClientSession, ClientTimeout, TCPConnector
 import signal
 
 from ..utils.config import get_config, NodeConfig
-from ..utils.logger import get_logger
 from ..communication.message_passing import Message, MessageType
 
 
@@ -13,12 +14,15 @@ class BaseNode:
     """Base class for all distributed nodes with async HTTP communication"""
 
     def __init__(self, config: NodeConfig | None = None):
-        self.config = config or get_config()
-        self.logger = get_logger()
-        self.node_id = self.config.node_id
+        self.config: NodeConfig = config or get_config()
+        # Create logger directly, don't use global
+        from ..utils.logger import NodeLogger
+
+        self.logger: NodeLogger = NodeLogger(self.config.node_id, self.config.log_level)
+        self.node_id: str = self.config.node_id
 
         # Network state
-        self.app = web.Application()
+        self.app: web.Application = web.Application()
         self.runner: web.AppRunner | None = None
         self.session: ClientSession | None = None
 
@@ -28,11 +32,11 @@ class BaseNode:
 
         # Message handlers
         self.message_handlers: dict[
-            MessageType, Callable[[Message], Awaitable[dict[Any, Any]]]
+            MessageType, Callable[[Message], Awaitable[dict[str, object]]]
         ] = {}
 
         # Shutdown flag
-        self.running = False
+        self.running: bool = False
 
         # Setup routes
         self._setup_routes()
@@ -46,14 +50,14 @@ class BaseNode:
 
     def _setup_routes(self):
         """Setup HTTP routes for node communication"""
-        self.app.router.add_post("/message", self._handle_message)
-        self.app.router.add_get("/health", self._handle_health)
-        self.app.router.add_get("/status", self._handle_status)
+        _ = self.app.router.add_post("/message", self._handle_message)
+        _ = self.app.router.add_get("/health", self._handle_health)
+        _ = self.app.router.add_get("/status", self._handle_status)
 
     def _register_default_handlers(self):
         """Register default message handlers"""
 
-        async def handle_heartbeat(msg: Message) -> dict[Any, Any]:
+        async def handle_heartbeat(msg: Message) -> dict[str, object]:
             """Default heartbeat handler"""
             return {
                 "ack": True,
@@ -61,7 +65,7 @@ class BaseNode:
                 "timestamp": asyncio.get_event_loop().time(),
             }
 
-        async def handle_ping(msg: Message) -> dict[Any, Any]:
+        async def handle_ping(msg: Message) -> dict[str, object]:
             """Default ping handler"""
             return {"pong": True, "node_id": self.node_id}
 
@@ -89,8 +93,8 @@ class BaseNode:
         await self._discover_peers()
 
         # Start background tasks
-        asyncio.create_task(self._heartbeat_loop())
-        asyncio.create_task(self._health_check_loop())
+        _ = asyncio.create_task(self._heartbeat_loop())
+        _ = asyncio.create_task(self._health_check_loop())
 
         # Setup signal handlers
         loop = asyncio.get_event_loop()
@@ -132,12 +136,20 @@ class BaseNode:
             handler = self.message_handlers.get(message.msg_type)
             if handler:
                 response_payload = await handler(message)
+
+                # Determine response message type based on request type
+                response_type = message.msg_type
+                if message.msg_type == MessageType.REQUEST_VOTE:
+                    response_type = MessageType.REQUEST_VOTE_RESPONSE
+                elif message.msg_type == MessageType.APPEND_ENTRIES:
+                    response_type = MessageType.APPEND_ENTRIES_RESPONSE
+
                 response_msg = Message.create(
-                    msg_type=message.msg_type,  # Same type for response
+                    msg_type=response_type,
                     sender_id=self.node_id,
                     receiver_id=message.sender_id,
                     payload=response_payload,
-                    term=message.term,
+                    term=getattr(message, "term", None),
                 )
                 return web.Response(body=response_msg.to_bytes(), status=200)
             else:
@@ -202,7 +214,7 @@ class BaseNode:
 
             # Exponential backoff
             if attempt < retry_count - 1:
-                await asyncio.sleep(0.1 * (2**attempt))
+                await asyncio.sleep(cast(float, 0.1 * (2**attempt)))
 
         self.logger.error(
             f"Failed to send message to {peer_addr} after {retry_count} attempts"
@@ -212,17 +224,19 @@ class BaseNode:
 
     async def broadcast_message(self, message: Message) -> dict[str, Message | None]:
         """Broadcast message to all peers"""
-        tasks = []
-        peer_list = list(self.peers)
+        # list of coroutines with an explicit element type
+        coros: list[Awaitable[Message | None]] = [
+            self.send_message(peer_addr, message) for peer_addr in self.peers
+        ]
 
-        for peer_addr in peer_list:
-            tasks.append(self.send_message(peer_addr, message))
+        # result of gather is now fully-typed
+        responses: list[Message | None | BaseException] = await asyncio.gather(
+            *coros, return_exceptions=True
+        )
 
-        responses = await asyncio.gather(*tasks, return_exceptions=True)
-
-        result = {}
-        for peer_addr, response in zip(peer_list, responses):
-            if isinstance(response, Exception):
+        result: dict[str, Message | None] = {}
+        for peer_addr, response in zip(self.peers, responses):
+            if isinstance(response, BaseException):
                 self.logger.error(f"Exception broadcasting to {peer_addr}: {response}")
                 result[peer_addr] = None
             else:
@@ -244,7 +258,7 @@ class BaseNode:
 
             # Send to all peers without waiting for responses
             for peer_addr in list(self.peers):
-                asyncio.create_task(
+                _ = asyncio.create_task(
                     self.send_message(peer_addr, heartbeat, retry_count=1)
                 )
 
@@ -273,7 +287,7 @@ class BaseNode:
     def register_handler(
         self,
         msg_type: MessageType,
-        handler: Callable[[Message], Awaitable[dict[Any, Any]]],
+        handler: Callable[[Message], Awaitable[dict[str, object]]],
     ):
         """Register a handler for a specific message type"""
         self.message_handlers[msg_type] = handler
