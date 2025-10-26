@@ -1,7 +1,7 @@
 from enum import Enum
 from dataclasses import dataclass, asdict
-from typing import Any
 import json
+from typing import TypedDict, cast
 import uuid
 from datetime import datetime
 
@@ -39,6 +39,16 @@ class MessageType(Enum):
     PONG = "PONG"
 
 
+class _MessageDict(TypedDict):
+    msg_id: str
+    msg_type: str
+    sender_id: str
+    receiver_id: str
+    timestamp: float
+    payload: dict[str, object]
+    term: int | None
+
+
 @dataclass
 class Message:
     """Base message structure for all node communication"""
@@ -48,8 +58,8 @@ class Message:
     sender_id: str
     receiver_id: str
     timestamp: float
-    payload: dict[str, Any]
-    term: int | None = None  # For Raft consensus
+    payload: dict[str, object]
+    term: int | None = None
 
     @classmethod
     def create(
@@ -57,10 +67,9 @@ class Message:
         msg_type: MessageType,
         sender_id: str,
         receiver_id: str,
-        payload: dict[str, Any],
+        payload: dict[str, object],
         term: int | None = None,
     ) -> "Message":
-        """Factory method to create a new message"""
         return cls(
             msg_id=str(uuid.uuid4()),
             msg_type=msg_type,
@@ -72,32 +81,33 @@ class Message:
         )
 
     def to_json(self) -> str:
-        """Serialize message to JSON"""
         data = asdict(self)
         data["msg_type"] = self.msg_type.value
         return json.dumps(data)
 
     @classmethod
     def from_json(cls, json_str: str) -> "Message":
-        """Deserialize message from JSON"""
-        data = json.loads(json_str)
-        data["msg_type"] = MessageType(data["msg_type"])
-        return cls(**data)
+        data = cast(_MessageDict, json.loads(json_str))
+        return cls(
+            msg_id=data["msg_id"],
+            msg_type=MessageType(data["msg_type"]),
+            sender_id=data["sender_id"],
+            receiver_id=data["receiver_id"],
+            timestamp=data["timestamp"],
+            payload=data["payload"],
+            term=data.get("term"),
+        )
 
     def to_bytes(self) -> bytes:
-        """Serialize message to bytes for network transmission"""
         return self.to_json().encode("utf-8")
 
     @classmethod
     def from_bytes(cls, data: bytes) -> "Message":
-        """Deserialize message from bytes"""
         return cls.from_json(data.decode("utf-8"))
 
 
 @dataclass
 class RequestVotePayload:
-    """Payload for Raft RequestVote RPC"""
-
     candidate_id: str
     last_log_index: int
     last_log_term: int
@@ -105,19 +115,15 @@ class RequestVotePayload:
 
 @dataclass
 class AppendEntriesPayload:
-    """Payload for Raft AppendEntries RPC"""
-
     leader_id: str
     prev_log_index: int
     prev_log_term: int
-    entries: list[Any]
+    entries: list[object]
     leader_commit: int
 
 
 @dataclass
 class LockPayload:
-    """Payload for lock operations"""
-
     lock_id: str
     lock_type: str  # "shared" or "exclusive"
     resource_id: str
@@ -126,19 +132,15 @@ class LockPayload:
 
 @dataclass
 class QueuePayload:
-    """Payload for queue operations"""
-
     queue_id: str
     message_id: str
-    message_data: Any
+    message_data: object
     priority: int = 0
 
 
 @dataclass
 class CachePayload:
-    """Payload for cache operations"""
-
     key: str
-    value: Any | None = None
+    value: object | None = None
     state: str | None = None  # MESI state
     version: int | None = None
