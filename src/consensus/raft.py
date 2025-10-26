@@ -6,7 +6,7 @@ import random
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TypedDict, cast, override
+from typing import Any, TypedDict, cast, override
 
 from ..communication.message_passing import Message, MessageType
 from ..nodes.base_node import BaseNode
@@ -588,7 +588,7 @@ class RaftNode(BaseNode):
 
         return {}
 
-    async def replicate_command(self, command: dict[str, object]) -> bool:
+    async def replicate_command(self, command: dict[str, Any]) -> bool:
         """Replicate a command through Raft consensus (only callable by leader)"""
         if self.state != NodeState.LEADER:
             self.logger.warning(
