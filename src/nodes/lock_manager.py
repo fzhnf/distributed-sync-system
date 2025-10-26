@@ -1,8 +1,11 @@
+# pyright: reportUnusedParameter=false
+# pyright: reportExplicitAny=false
+#
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, override
+from typing import override
 
 from src.nodes.deadlock_detector import DeadlockDetector
 
@@ -51,7 +54,7 @@ class LockManager(RaftNode):
         self.locks: dict[str, list[Lock]] = {}
 
         # Track lock requests waiting for responses
-        self.pending_requests: dict[str, asyncio.Future[Any]] = {}
+        self.pending_requests: dict[str, asyncio.Future[bool]] = {}
 
         # Deadlock detection
         self.deadlock_detector: DeadlockDetector = DeadlockDetector()
@@ -208,7 +211,7 @@ class LockManager(RaftNode):
         }
 
         # Create future for this request
-        future = asyncio.Future()
+        future: asyncio.Future[bool] = asyncio.Future()
         self.pending_requests[lock_id] = future
 
         # Replicate through Raft
@@ -301,7 +304,7 @@ class LockManager(RaftNode):
 
     async def _abort_client_locks(self, client_id: str):
         """Release all locks held by a client (for deadlock resolution)"""
-        locks_to_release = []
+        locks_to_release: list[tuple[str, str]] = []
 
         for resource_id, locks in self.locks.items():
             for lock in locks:
