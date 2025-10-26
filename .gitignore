@@ -1,10 +1,23 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
 build/
 dist/
 wheels/
 *.egg-info
+.DS_Store
 
 # Virtual environments
+.env
 .venv
+env/
+venv/
+
