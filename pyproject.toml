@@ -9,6 +9,7 @@ dependencies = [
     "locust>=2.42.0",
     "prometheus-client>=0.23.1",
     "pytest>=8.4.2",
+    "pytest-aiohttp>=1.1.0",
     "pytest-asyncio>=1.2.0",
     "pyyaml>=6.0.3",
     "redis>=7.0.0",
